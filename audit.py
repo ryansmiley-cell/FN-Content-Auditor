@@ -224,6 +224,34 @@ def discover_urls(site_key: str, session: requests.Session, browser: Browser) ->
 
 # ── Page Content Extraction ───────────────────────────────────────────────────
 
+# JavaScript that collects ALL <a href> values including those inside
+# Salesforce Lightning Web Component (LWC) Shadow DOM trees.
+# Standard query_selector_all("a[href]") is blind to shadow DOM.
+_COLLECT_LINKS_JS = """
+() => {
+    const hrefs = [];
+    const seen  = new Set();
+    function collect(root) {
+        if (!root) return;
+        try {
+            const anchors = root.querySelectorAll('a[href]');
+            for (const a of anchors) {
+                const h = a.getAttribute('href');
+                if (h && !seen.has(h)) { seen.add(h); hrefs.push(h); }
+            }
+            // Recurse into every shadow root on this level
+            const all = root.querySelectorAll('*');
+            for (const el of all) {
+                if (el.shadowRoot) collect(el.shadowRoot);
+            }
+        } catch(e) {}
+    }
+    collect(document.body);
+    return hrefs;
+}
+"""
+
+
 def _normalize_url(url: str) -> str:
     """Strip query-string and fragment; used for BFS deduplication."""
     p = urlparse(url)
@@ -274,11 +302,18 @@ def get_page_content(
             if src and not src.startswith("data:"):
                 img_urls.append(urljoin(url, src))
 
-        # Collect same-domain links for BFS
+        # Collect same-domain links for BFS using shadow-DOM-aware JS.
+        # Salesforce LWC renders navigation inside shadow roots, which
+        # query_selector_all("a[href]") cannot see.
         links: List[str] = []
         if base_netloc:
-            for a in page.query_selector_all("a[href]"):
-                href = (a.get_attribute("href") or "").strip()
+            try:
+                raw_hrefs: List[str] = page.evaluate(_COLLECT_LINKS_JS) or []
+            except Exception:
+                raw_hrefs = []
+
+            for href in raw_hrefs:
+                href = href.strip()
                 if not href or href.startswith("mailto:") or href.startswith("tel:"):
                     continue
                 full = _normalize_url(urljoin(url, href.split("#")[0]))

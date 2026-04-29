@@ -189,6 +189,11 @@ if st.session_state.get("run_btn"):
                 ),
             )
             url_caption.caption(event.get("url", ""))
+            # Keep status box in sync with progress bar
+            status_box.info(
+                f"Scanning **{scan_state['scanned']} / ~{scan_state['total']}** pages  ·  "
+                f"**{len(results)}** flagged so far…"
+            )
 
         elif etype == "flagged":
             r = event["result"]
