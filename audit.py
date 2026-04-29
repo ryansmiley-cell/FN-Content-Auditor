@@ -83,6 +83,42 @@ SITES = {
     "marketing": "https://www.fieldnation.com",
 }
 
+# Broad search terms that collectively surface every article category on
+# support.fieldnation.com.  Each term produces a search-results page that
+# the BFS visits and extracts article links from -- catching articles that
+# aren't linked from any navigation menu (orphaned in Salesforce knowledge base).
+# Tested empirically: these 30 terms find all known article URLs including ones
+# completely absent from the sitemap.
+_SUPPORT_SEARCH_TERMS: List[str] = [
+    # Core platform concepts
+    "work+order", "provider", "buyer", "payment", "field+nation",
+    # Common article types
+    "FAQ", "how+to", "getting+started", "guide",
+    # Provider topics
+    "ranking", "match", "selection", "score", "success",
+    "talent", "background", "insurance", "rate", "assign",
+    # Buyer / admin topics
+    "dashboard", "quality", "filter", "marketplace", "custom",
+    # Other content areas
+    "schedule", "notification", "invoice", "integration",
+    "report", "location", "billing", "performance",
+]
+
+
+def _get_search_seed_urls(base_url: str) -> List[str]:
+    """
+    Return search-result page URLs to add as BFS seeds alongside the sitemap.
+    Currently only defined for support.fieldnation.com (Salesforce Experience
+    Cloud), whose search pages surface knowledge articles not linked from any
+    navigation element.
+    """
+    if "support.fieldnation.com" in base_url:
+        return [
+            f"{base_url}/s/global-search/{term}"
+            for term in _SUPPORT_SEARCH_TERMS
+        ]
+    return []
+
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive.file",
@@ -102,10 +138,13 @@ PAGE_TIMEOUT_MS = 25_000         # 25s per page
 CRAWL_DELAY_S   = 0.5            # polite delay between pages
 MAX_PAGES       = 800            # safety cap (BFS may find more than sitemap)
 
-# URL path segments that indicate non-content pages -- skip during BFS
+# URL path segments that indicate non-content pages -- skip during BFS.
+# Note: "global-search" must NOT be skipped -- those pages surface articles.
+# Only skip bare /search endpoints (search forms, not search result pages).
 _SKIP_PATTERNS = re.compile(
     r"/(login|logout|register|profile|account|signin|signout"
-    r"|oauth|auth/|callback|api/|wp-admin|wp-login|search\b)",
+    r"|oauth|auth/|callback|api/|wp-admin|wp-login"
+    r"|(?<!global-)search(?:/?\?|/?$))",  # /search but not /global-search/
     re.IGNORECASE,
 )
 
@@ -521,6 +560,17 @@ def run_audit_bfs(
                 queued:  Set[str]  = set(queue)
                 visited: Set[str]  = set()
                 scanned = 0
+
+                # Add search-result pages as BFS seeds.
+                # These surface knowledge articles not linked from any nav element
+                # (e.g. orphaned Salesforce articles absent from the sitemap).
+                search_seeds = _get_search_seed_urls(base)
+                for s in search_seeds:
+                    if s not in queued:
+                        queue.append(s)
+                        queued.add(s)
+                if search_seeds:
+                    log.info(f"  Search seeds: +{len(search_seeds)} search-result pages added to queue")
 
                 # Inject any user-specified URLs that might not be in the sitemap
                 # or reachable via navigation links (e.g. orphaned articles).
