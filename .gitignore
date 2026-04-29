@@ -1,0 +1,24 @@
+# Google API credentials (never commit these)
+credentials.json
+token.pickle
+
+# Output files
+*.csv
+*.gsheet
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Playwright browser cache
+.playwright/
+
+# macOS
+.DS_Store
+
+# Streamlit local state
+.streamlit/

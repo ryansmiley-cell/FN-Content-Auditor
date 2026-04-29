@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Field Nation Content Auditor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:        #0062E0;
+      --blue-dark:   #0050B8;
+      --blue-light:  #E8F0FD;
+      --green:       #1A7F3C;
+      --green-light: #E6F4EC;
+      --red:         #C0392B;
+      --red-light:   #FDF0EE;
+      --gray-50:     #F8F9FA;
+      --gray-100:    #F1F3F5;
+      --gray-200:    #E9ECEF;
+      --gray-400:    #9CA3AF;
+      --gray-600:    #4B5563;
+      --gray-800:    #1F2937;
+      --radius:      8px;
+      --shadow:      0 1px 3px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
+      --shadow-md:   0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      color: var(--gray-800);
+      background: var(--gray-50);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #fff;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-mark {
+      width: 28px; height: 28px;
+      background: var(--blue);
+      border-radius: 6px;
+      display: grid; place-items: center;
+      color: #fff; font-weight: 700; font-size: 13px;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    header span { color: var(--gray-400); font-size: 13px; margin-left: auto; }
+
+    /* ── Layout ── */
+    main {
+      max-width: 920px;
+      margin: 32px auto;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .card-header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--gray-200);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-header h2 { font-size: 14px; font-weight: 600; }
+    .card-body { padding: 20px; }
+
+    /* ── Form elements ── */
+    label { display: block; font-weight: 500; margin-bottom: 6px; font-size: 13px; }
+    .hint { font-size: 12px; color: var(--gray-400); margin-top: 4px; }
+
+    .field { margin-bottom: 20px; }
+    .field:last-child { margin-bottom: 0; }
+
+    /* Tag input */
+    .tag-input-wrap {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 6px 8px;
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      cursor: text; background: #fff;
+      min-height: 42px;
+      transition: border-color .15s;
+    }
+    .tag-input-wrap:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,98,224,.12); }
+    .tag {
+      background: var(--blue-light); color: var(--blue);
+      padding: 3px 8px 3px 10px; border-radius: 20px;
+      display: flex; align-items: center; gap: 5px;
+      font-size: 13px; font-weight: 500; white-space: nowrap;
+    }
+    .tag button {
+      background: none; border: none; cursor: pointer;
+      color: var(--blue); opacity: .7; font-size: 15px;
+      line-height: 1; padding: 0; display: grid; place-items: center;
+    }
+    .tag button:hover { opacity: 1; }
+    #term-input {
+      border: none; outline: none; font-size: 14px;
+      flex: 1; min-width: 140px; background: transparent;
+      padding: 2px 4px;
+    }
+    #term-input::placeholder { color: var(--gray-400); }
+
+    /* Radio/checkbox groups */
+    .radio-group { display: flex; gap: 12px; flex-wrap: wrap; }
+    .radio-opt, .check-opt {
+      display: flex; align-items: center; gap: 6px;
+      font-weight: 400; cursor: pointer;
+      padding: 8px 14px;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      transition: border-color .12s, background .12s;
+    }
+    .radio-opt:has(input:checked), .check-opt:has(input:checked) {
+      border-color: var(--blue); background: var(--blue-light);
+      color: var(--blue); font-weight: 500;
+    }
+    .radio-opt input, .check-opt input { accent-color: var(--blue); }
+    .check-opt { margin-top: 0; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 20px; border-radius: var(--radius);
+      font-size: 14px; font-weight: 500; cursor: pointer;
+      border: none; transition: background .12s, opacity .12s;
+    }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-dark); }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent; color: var(--gray-600);
+      border: 1px solid var(--gray-200);
+    }
+    .btn-ghost:hover { background: var(--gray-100); }
+    .btn-ghost:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-success:hover { filter: brightness(.92); }
+
+    .actions { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+
+    /* ── Progress ── */
+    #progress-card { display: none; }
+    .progress-meta {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 10px;
+    }
+    .progress-meta .label { font-weight: 500; }
+    .progress-meta .counter { color: var(--gray-600); font-size: 13px; }
+    .progress-bar-track {
+      height: 8px; background: var(--gray-100); border-radius: 99px; overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; background: var(--blue); border-radius: 99px;
+      width: 0%; transition: width .3s ease;
+    }
+    .progress-url {
+      margin-top: 8px; font-size: 12px; color: var(--gray-400);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+
+    /* ── Results ── */
+    #results-card { display: none; }
+    .results-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px;
+    }
+    .results-header h2 { font-size: 14px; font-weight: 600; }
+    .badge {
+      display: inline-block; padding: 2px 9px; border-radius: 99px;
+      font-size: 12px; font-weight: 600;
+    }
+    .badge-flagged { background: #FFF3CD; color: #856404; }
+    .badge-zero    { background: var(--green-light); color: var(--green); }
+
+    /* Table */
+    .table-scroll { overflow-x: auto; margin-top: 16px; }
+    table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+      table-layout: fixed;
+    }
+    col.col-title   { width: 22%; }
+    col.col-url     { width: 26%; }
+    col.col-terms   { width: 16%; }
+    col.col-type    { width: 10%; }
+    col.col-context { width: 26%; }
+    thead th {
+      text-align: left; padding: 8px 12px;
+      font-weight: 600; font-size: 12px; color: var(--gray-600);
+      background: var(--gray-50); border-bottom: 1px solid var(--gray-200);
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 10px 12px; border-bottom: 1px solid var(--gray-100);
+      vertical-align: top; word-break: break-word;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--gray-50); }
+    .cell-url a {
+      color: var(--blue); text-decoration: none; font-family: monospace; font-size: 12px;
+    }
+    .cell-url a:hover { text-decoration: underline; }
+    .cell-terms { display: flex; flex-wrap: wrap; gap: 4px; }
+    .term-chip {
+      background: var(--blue-light); color: var(--blue);
+      padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 500;
+    }
+    .cell-context { color: var(--gray-600); font-style: italic; font-size: 12px; }
+    .type-badge {
+      background: var(--gray-100); color: var(--gray-600);
+      padding: 1px 7px; border-radius: 99px; font-size: 11px;
+      white-space: nowrap;
+    }
+
+    /* ── Empty / error states ── */
+    .empty-state {
+      text-align: center; padding: 48px 20px; color: var(--gray-400);
+    }
+    .empty-state svg { margin-bottom: 12px; opacity: .4; }
+    .empty-state p { font-size: 13px; }
+
+    .error-banner {
+      background: var(--red-light); color: var(--red);
+      border: 1px solid #F5C6C2;
+      border-radius: var(--radius); padding: 12px 16px;
+      font-size: 13px; display: none;
+    }
+
+    /* ── Status dot animation ── */
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--blue);
+      animation: pulse 1.4s ease-in-out infinite; display: inline-block;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">FN</div>
+  <h1>Content Auditor</h1>
+  <span>support.fieldnation.com &amp; fieldnation.com</span>
+</header>
+
+<main>
+
+  <!-- ── Search Form ── -->
+  <div class="card" id="form-card">
+    <div class="card-header">
+      <h2>Audit Settings</h2>
+    </div>
+    <div class="card-body">
+
+      <div class="field">
+        <label>Search Terms</label>
+        <div class="tag-input-wrap" id="tag-wrap" onclick="document.getElementById('term-input').focus()">
+          <!-- tags injected here -->
+          <input id="term-input" type="text"
+                 placeholder="Type a term and press Enter…"
+                 autocomplete="off" spellcheck="false" />
+        </div>
+        <p class="hint">Press Enter or comma to add each term. Verb forms and filler words are matched automatically — searching <strong>"mark complete"</strong> also finds <em>"marked complete"</em> and <em>"mark the work order as complete"</em>.</p>
+      </div>
+
+      <div class="field">
+        <label>Sites to Audit</label>
+        <div class="radio-group" id="site-group">
+          <label class="radio-opt">
+            <input type="radio" name="site" value="support" checked /> Help Center
+          </label>
+          <label class="radio-opt">
+            <input type="radio" name="site" value="marketing" /> Marketing Site
+          </label>
+          <label class="radio-opt">
+            <input type="radio" name="site" value="both" /> Both Sites
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Options</label>
+        <label class="check-opt" style="display:inline-flex">
+          <input type="checkbox" id="ocr-check" {% if not ocr_available %}disabled{% endif %} />
+          Enable image OCR
+          {% if not ocr_available %}
+          <span style="color:var(--gray-400);margin-left:6px;font-size:12px">(install Tesseract to enable)</span>
+          {% else %}
+          <span style="color:var(--gray-400);margin-left:6px;font-size:12px">— searches text inside screenshots (slower)</span>
+          {% endif %}
+        </label>
+      </div>
+
+      <div id="error-banner" class="error-banner"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="run-btn" onclick="startAudit()">
+          Run Audit
+        </button>
+        <button class="btn btn-ghost" id="cancel-btn" onclick="cancelAudit()" style="display:none">
+          Cancel
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Progress ── -->
+  <div class="card" id="progress-card">
+    <div class="card-body">
+      <div class="progress-meta">
+        <span class="label">
+          <span class="status-dot" id="status-dot"></span>
+          &nbsp;
+          <span id="progress-label">Discovering pages…</span>
+        </span>
+        <span class="counter" id="progress-counter"></span>
+      </div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-url" id="progress-url"></div>
+    </div>
+  </div>
+
+  <!-- ── Results ── -->
+  <div class="card" id="results-card">
+    <div class="card-header results-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2>Results</h2>
+        <span class="badge" id="results-badge"></span>
+      </div>
+      <button class="btn btn-success" id="export-btn" onclick="exportCSV()" style="display:none">
+        ↓ Export CSV
+      </button>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div id="empty-state" class="empty-state">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <p>No pages flagged yet.</p>
+      </div>
+      <div class="table-scroll" id="table-wrap" style="display:none">
+        <table>
+          <colgroup>
+            <col class="col-title"><col class="col-url">
+            <col class="col-terms"><col class="col-type"><col class="col-context">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Page Title</th>
+              <th>URL</th>
+              <th>Matched Terms</th>
+              <th>Found Via</th>
+              <th>Context</th>
+            </tr>
+          </thead>
+          <tbody id="results-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  // ── Tag input ──────────────────────────────────────────────────────────────
+  const terms = [];
+
+  function addTerm(val) {
+    const t = val.trim().replace(/,+$/, "").trim();
+    if (!t || terms.includes(t)) return;
+    terms.push(t);
+    renderTags();
+  }
+
+  function removeTerm(idx) {
+    terms.splice(idx, 1);
+    renderTags();
+  }
+
+  function renderTags() {
+    const wrap  = document.getElementById("tag-wrap");
+    const input = document.getElementById("term-input");
+    // Remove old tags (keep the input)
+    wrap.querySelectorAll(".tag").forEach(el => el.remove());
+    terms.forEach((t, i) => {
+      const chip = document.createElement("span");
+      chip.className = "tag";
+      chip.innerHTML = `${esc(t)} <button type="button" aria-label="Remove" onclick="removeTerm(${i})">×</button>`;
+      wrap.insertBefore(chip, input);
+    });
+  }
+
+  document.getElementById("term-input").addEventListener("keydown", e => {
+    const v = e.target.value;
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTerm(v);
+      e.target.value = "";
+    } else if (e.key === "Backspace" && !v && terms.length) {
+      removeTerm(terms.length - 1);
+    }
+  });
+  document.getElementById("term-input").addEventListener("blur", e => {
+    if (e.target.value.trim()) { addTerm(e.target.value); e.target.value = ""; }
+  });
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentJobId  = null;
+  let currentSource = null;
+  let allResults    = [];
+  let lastTerms     = [];
+
+  // ── Audit ──────────────────────────────────────────────────────────────────
+  async function startAudit() {
+    // Flush any pending text in the input
+    const inputEl = document.getElementById("term-input");
+    if (inputEl.value.trim()) { addTerm(inputEl.value); inputEl.value = ""; }
+
+    if (!terms.length) {
+      showError("Please add at least one search term.");
+      return;
+    }
+
+    hideError();
+    setFormDisabled(true);
+    allResults = [];
+    lastTerms  = [...terms];
+
+    const siteVal = document.querySelector('input[name="site"]:checked').value;
+    const sites   = siteVal === "both" ? ["support", "marketing"] : [siteVal];
+    const useOcr  = document.getElementById("ocr-check").checked;
+
+    // Reset UI
+    resetResults();
+    showCard("progress-card");
+    showCard("results-card");
+    document.getElementById("cancel-btn").style.display = "inline-flex";
+
+    // Start job
+    let jobId;
+    try {
+      const res  = await fetch("/audit/start", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({terms, sites, use_ocr: useOcr}),
+      });
+      const data = await res.json();
+      if (data.error) { showError(data.error); setFormDisabled(false); return; }
+      jobId = data.job_id;
+    } catch (err) {
+      showError("Could not connect to server: " + err.message);
+      setFormDisabled(false);
+      return;
+    }
+
+    currentJobId = jobId;
+
+    // Open SSE stream
+    const src = new EventSource(`/audit/stream/${jobId}`);
+    currentSource = src;
+
+    src.onmessage = e => {
+      const ev = JSON.parse(e.data);
+      handleEvent(ev);
+    };
+    src.onerror = () => {
+      src.close();
+      if (currentJobId) {
+        // Try to recover current status
+        fetch(`/audit/status/${jobId}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d.status === "complete" || d.status === "cancelled") {
+              allResults = d.results;
+              finishAudit(d.status, d.results.length);
+            }
+          }).catch(() => {});
+      }
+    };
+  }
+
+  function handleEvent(ev) {
+    switch (ev.type) {
+      case "ping": break;
+
+      case "discovering":
+        setProgressLabel(`Discovering pages on ${ev.site}…`);
+        break;
+
+      case "started":
+        setProgressLabel("Scanning pages (following links — total may grow)…");
+        setProgressCounter(0, ev.total, true);
+        break;
+
+      case "scanning":
+        setProgressLabel("Scanning pages…");
+        setProgressCounter(ev.current, ev.total, true);
+        document.getElementById("progress-url").textContent = ev.url;
+        break;
+
+      case "flagged":
+        allResults.push(ev.result);
+        appendRow(ev.result);
+        updateResultsBadge(allResults.length, false);
+        break;
+
+      case "complete":
+        currentSource && currentSource.close();
+        finishAudit("complete", ev.count);
+        break;
+
+      case "cancelled":
+        currentSource && currentSource.close();
+        finishAudit("cancelled", ev.count);
+        break;
+
+      case "error":
+        currentSource && currentSource.close();
+        showError("Audit error: " + ev.message);
+        setFormDisabled(false);
+        document.getElementById("cancel-btn").style.display = "none";
+        stopDot();
+        break;
+    }
+  }
+
+  function finishAudit(status, count) {
+    stopDot();
+    const label = status === "cancelled" ? "Audit cancelled." : "Audit complete.";
+    setProgressLabel(label);
+    document.getElementById("progress-url").textContent = "";
+    document.getElementById("cancel-btn").style.display = "none";
+    setFormDisabled(false);
+    updateResultsBadge(count, true);
+    if (count > 0) {
+      document.getElementById("export-btn").style.display = "inline-flex";
+    }
+    currentJobId = null;
+  }
+
+  async function cancelAudit() {
+    if (!currentJobId) return;
+    document.getElementById("cancel-btn").disabled = true;
+    await fetch(`/audit/cancel/${currentJobId}`, {method: "POST"}).catch(() => {});
+  }
+
+  // ── Results table ──────────────────────────────────────────────────────────
+  function appendRow(r) {
+    const tbody = document.getElementById("results-body");
+    const empty = document.getElementById("empty-state");
+    const wrap  = document.getElementById("table-wrap");
+
+    empty.style.display = "none";
+    wrap.style.display  = "block";
+
+    const snippet = r.snippets && r.snippets[0] ? r.snippets[0] : "—";
+    const chips   = r.matched_terms.map(t => `<span class="term-chip">${esc(t)}</span>`).join(" ");
+    const tr      = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>${esc(r.title)}</td>
+      <td class="cell-url"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a></td>
+      <td><div class="cell-terms">${chips}</div></td>
+      <td><span class="type-badge">${esc(r.match_types)}</span></td>
+      <td class="cell-context">${esc(snippet)}</td>`;
+
+    tbody.appendChild(tr);
+  }
+
+  function resetResults() {
+    document.getElementById("results-body").innerHTML = "";
+    document.getElementById("empty-state").style.display = "block";
+    document.getElementById("table-wrap").style.display  = "none";
+    document.getElementById("export-btn").style.display  = "none";
+    document.getElementById("results-badge").textContent = "";
+    document.getElementById("results-badge").className   = "badge";
+    document.getElementById("progress-fill").style.width = "0%";
+    document.getElementById("progress-url").textContent  = "";
+    document.getElementById("progress-counter").textContent = "";
+    startDot();
+  }
+
+  function updateResultsBadge(count, done) {
+    const badge = document.getElementById("results-badge");
+    if (count === 0 && done) {
+      badge.textContent  = "No matches found";
+      badge.className    = "badge badge-zero";
+    } else {
+      badge.textContent  = count === 1 ? "1 page flagged" : `${count} pages flagged`;
+      badge.className    = "badge badge-flagged";
+    }
+  }
+
+  // ── CSV Export ─────────────────────────────────────────────────────────────
+  function exportCSV() {
+    const rows = [["URL","Page Title","Site","Matched Terms","Match Type","Context"]];
+    for (const r of allResults) {
+      rows.push([
+        r.url,
+        r.title,
+        r.site,
+        r.matched_terms.join("; "),
+        r.match_types,
+        (r.snippets || []).join(" | "),
+      ]);
+    }
+    const csv  = rows.map(row => row.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const slug = lastTerms[0] ? lastTerms[0].replace(/\s+/g,"_").slice(0,30) : "audit";
+    const date = new Date().toISOString().slice(0,10);
+    a.href     = url;
+    a.download = `fn_audit_${slug}_${date}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function csvCell(v) {
+    const s = String(v ?? "");
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s ?? "")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;");
+  }
+
+  function showCard(id)  { document.getElementById(id).style.display = "block"; }
+
+  function setFormDisabled(disabled) {
+    document.getElementById("run-btn").disabled = disabled;
+    document.querySelectorAll('input[name="site"]').forEach(el => el.disabled = disabled);
+    document.getElementById("ocr-check").disabled = disabled;
+    document.getElementById("term-input").disabled = disabled;
+  }
+
+  function setProgressLabel(text) {
+    document.getElementById("progress-label").textContent = text;
+  }
+
+  function setProgressCounter(cur, total, estimated) {
+    const totalLabel = estimated ? `~${total}` : String(total);
+    document.getElementById("progress-counter").textContent =
+      total ? `${cur} / ${totalLabel} pages` : "";
+    // Cap at 98% so the bar never looks "done" until the complete event
+    const pct = total ? Math.min(Math.round((cur / total) * 100), 98) : 0;
+    document.getElementById("progress-fill").style.width = pct + "%";
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("error-banner");
+    el.textContent = msg;
+    el.style.display = "block";
+  }
+
+  function hideError() {
+    document.getElementById("error-banner").style.display = "none";
+  }
+
+  function startDot() {
+    const dot = document.getElementById("status-dot");
+    if (dot) dot.style.display = "inline-block";
+  }
+
+  function stopDot() {
+    const dot = document.getElementById("status-dot");
+    if (dot) dot.style.animation = "none";
+  }
+</script>
+</body>
+</html>
