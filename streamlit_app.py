@@ -46,11 +46,14 @@ st.markdown("""
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("Field Nation Content Auditor")
-st.caption(
-    "Searches **support.fieldnation.com** and/or **fieldnation.com** for keywords. "
-    "Verb forms and filler words are matched automatically — searching "
-    "**\"mark complete\"** also finds *\"marked complete\"* and "
-    "*\"mark the work order as complete\"*."
+st.markdown(
+    """
+Enter one or more keywords below, then click **Run Audit**. The tool will:
+
+1. **Discover articles** -- pulls the sitemap, runs 30 broad searches across the help center, and follows links on every page it visits. This finds all articles, including ones not linked from any navigation menu.
+2. **Search every article** -- scans the full text of each page for your keywords. Verb forms and filler words are matched automatically, so **"mark complete"** also finds *"marked complete"* and *"mark the work order as complete"*.
+3. **Export results** -- download a CSV of every flagged article with a context snippet showing where the term appeared.
+"""
 )
 st.divider()
 
