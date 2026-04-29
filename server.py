@@ -35,7 +35,8 @@ jobs: Dict[str, dict] = {}   # job_id → job state
 
 # ── Job Runner (background thread) ───────────────────────────────────────────
 
-def _run_job(job_id: str, terms: list, sites: list, use_ocr: bool) -> None:
+def _run_job(job_id: str, terms: list, sites: list, use_ocr: bool,
+             extra_seeds: list) -> None:
     """
     Runs the full audit (BFS) in a background thread, emitting SSE events via the
     job's Queue.  run_audit_bfs handles Playwright internally (sync_playwright is
@@ -60,6 +61,7 @@ def _run_job(job_id: str, terms: list, sites: list, use_ocr: bool) -> None:
             sites, terms, use_ocr,
             on_event=emit,
             cancel_event=cancel,
+            extra_seeds=extra_seeds or [],
         )
         status = "cancelled" if cancel.is_set() else "complete"
         job["status"] = status
@@ -80,10 +82,11 @@ def index():
 
 @app.route("/audit/start", methods=["POST"])
 def start_audit():
-    data     = request.get_json(force=True)
-    terms    = [t.strip() for t in data.get("terms", []) if t.strip()]
-    sites    = data.get("sites", ["support"])
-    use_ocr  = bool(data.get("use_ocr", False))
+    data        = request.get_json(force=True)
+    terms       = [t.strip() for t in data.get("terms", []) if t.strip()]
+    sites       = data.get("sites", ["support"])
+    use_ocr     = bool(data.get("use_ocr", False))
+    extra_seeds = [u.strip() for u in data.get("extra_seeds", []) if u.strip()]
 
     if not terms:
         return jsonify({"error": "At least one search term is required."}), 400
@@ -104,7 +107,9 @@ def start_audit():
         "cancel":  Event(),
     }
 
-    t = threading.Thread(target=_run_job, args=(job_id, terms, sites, use_ocr), daemon=True)
+    t = threading.Thread(target=_run_job,
+                         args=(job_id, terms, sites, use_ocr, extra_seeds),
+                         daemon=True)
     t.start()
 
     return jsonify({"job_id": job_id})

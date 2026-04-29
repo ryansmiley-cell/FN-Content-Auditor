@@ -470,12 +470,17 @@ def run_audit_bfs(
     use_ocr: bool = True,
     on_event=None,
     cancel_event=None,
+    extra_seeds: Optional[List[str]] = None,
 ) -> List[Dict]:
     """
     BFS audit -- discovers URLs as a side-effect of scanning.
 
     Starts from the sitemap (or homepage) and follows every link found on each
     page, so articles not listed in the sitemap are still visited.
+
+    extra_seeds: additional URLs to always include (e.g. articles not linked
+    from any navigation page). These are added to the queue before scanning
+    starts, and links discovered FROM them expand the queue further.
 
     on_event(dict) is called for progress; events emitted:
       {"type": "discovering", "site": url}
@@ -516,6 +521,19 @@ def run_audit_bfs(
                 queued:  Set[str]  = set(queue)
                 visited: Set[str]  = set()
                 scanned = 0
+
+                # Inject any user-specified URLs that might not be in the sitemap
+                # or reachable via navigation links (e.g. orphaned articles).
+                if extra_seeds:
+                    added_extra = 0
+                    for raw in extra_seeds:
+                        norm = _normalize_url(raw.strip())
+                        if norm and norm not in queued and _should_follow(norm, base_netloc):
+                            queue.append(norm)
+                            queued.add(norm)
+                            added_extra += 1
+                    if added_extra:
+                        log.info(f"  Extra seeds: +{added_extra} user-specified URLs added to queue")
 
                 emit({"type": "started", "total": len(queue), "site": base})
 
@@ -600,6 +618,7 @@ def run_audit(
     sites: List[str],
     search_terms: List[str],
     use_ocr: bool = True,
+    extra_seeds: Optional[List[str]] = None,
 ) -> List[Dict]:
     """CLI wrapper around run_audit_bfs (kept for backward compatibility)."""
     def on_event(event):
@@ -613,7 +632,8 @@ def run_audit(
         elif event.get("type") == "flagged":
             pass  # already logged inside run_audit_bfs
 
-    return run_audit_bfs(sites, search_terms, use_ocr, on_event=on_event)
+    return run_audit_bfs(sites, search_terms, use_ocr, on_event=on_event,
+                         extra_seeds=extra_seeds)
 
 
 # ── Output: CSV ───────────────────────────────────────────────────────────────

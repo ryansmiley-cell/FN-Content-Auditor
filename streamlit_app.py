@@ -128,6 +128,23 @@ sites = site_map[site_choice]
 
 st.divider()
 
+# ── Extra Seed URLs ───────────────────────────────────────────────────────────
+st.subheader("Additional URLs to Always Scan  *(optional)*")
+st.caption(
+    "Paste specific article URLs here if you know they exist but the tool keeps missing them. "
+    "One URL per line. The tool will scan them directly and follow links from them."
+)
+extra_seeds_raw = st.text_area(
+    "extra_seeds",
+    placeholder="https://support.fieldnation.com/s/article/Provider-Success-Score-FAQ\nhttps://support.fieldnation.com/s/article/My-Business-Dashboard",
+    label_visibility="collapsed",
+    height=100,
+)
+extra_seeds = [u.strip() for u in extra_seeds_raw.splitlines()
+               if u.strip().startswith("http")]
+
+st.divider()
+
 # ── Run Audit ─────────────────────────────────────────────────────────────────
 run_disabled = not st.session_state.terms
 st.button(
@@ -212,7 +229,8 @@ if st.session_state.get("run_btn"):
             )
 
     try:
-        _audit.run_audit_bfs(sites, terms, use_ocr, on_event=on_event)
+        _audit.run_audit_bfs(sites, terms, use_ocr, on_event=on_event,
+                             extra_seeds=extra_seeds)
     except Exception as exc:
         st.error(f"Audit error: {exc}")
         st.stop()

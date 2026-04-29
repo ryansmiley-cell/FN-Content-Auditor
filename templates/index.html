@@ -306,6 +306,19 @@
         </label>
       </div>
 
+      <div class="field">
+        <label for="seed-urls">Additional URLs to Always Scan <span style="font-weight:400;color:var(--gray-400)">(optional)</span></label>
+        <textarea id="seed-urls" rows="4"
+          placeholder="Paste specific article URLs here if the tool keeps missing them — one per line.&#10;https://support.fieldnation.com/s/article/Provider-Success-Score-FAQ&#10;https://support.fieldnation.com/s/article/My-Business-Dashboard"
+          style="width:100%;border:1px solid var(--gray-200);border-radius:var(--radius);
+                 padding:8px 10px;font-size:13px;font-family:inherit;resize:vertical;
+                 outline:none;transition:border-color .15s;"
+          onfocus="this.style.borderColor='var(--blue)'"
+          onblur="this.style.borderColor='var(--gray-200)'"
+        ></textarea>
+        <p class="hint">The tool will scan these URLs directly and follow links from them — useful for articles not linked from any navigation page.</p>
+      </div>
+
       <div id="error-banner" class="error-banner"></div>
 
       <div class="actions">
@@ -444,9 +457,11 @@
     allResults = [];
     lastTerms  = [...terms];
 
-    const siteVal = document.querySelector('input[name="site"]:checked').value;
-    const sites   = siteVal === "both" ? ["support", "marketing"] : [siteVal];
-    const useOcr  = document.getElementById("ocr-check").checked;
+    const siteVal    = document.querySelector('input[name="site"]:checked').value;
+    const sites      = siteVal === "both" ? ["support", "marketing"] : [siteVal];
+    const useOcr     = document.getElementById("ocr-check").checked;
+    const extraSeeds = document.getElementById("seed-urls").value
+      .split("\n").map(u => u.trim()).filter(u => u.startsWith("http"));
 
     // Reset UI
     resetResults();
@@ -460,7 +475,7 @@
       const res  = await fetch("/audit/start", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({terms, sites, use_ocr: useOcr}),
+        body: JSON.stringify({terms, sites, use_ocr: useOcr, extra_seeds: extraSeeds}),
       });
       const data = await res.json();
       if (data.error) { showError(data.error); setFormDisabled(false); return; }
