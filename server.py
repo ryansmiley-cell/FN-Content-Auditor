@@ -36,7 +36,7 @@ jobs: Dict[str, dict] = {}   # job_id → job state
 # ── Job Runner (background thread) ───────────────────────────────────────────
 
 def _run_job(job_id: str, terms: list, sites: list, use_ocr: bool,
-             extra_seeds: list) -> None:
+             extra_seeds: list, marketing_sitemaps: list) -> None:
     """
     Runs the full audit (BFS) in a background thread, emitting SSE events via the
     job's Queue.  run_audit_bfs handles Playwright internally (sync_playwright is
@@ -62,6 +62,7 @@ def _run_job(job_id: str, terms: list, sites: list, use_ocr: bool,
             on_event=emit,
             cancel_event=cancel,
             extra_seeds=extra_seeds or [],
+            marketing_sitemaps=marketing_sitemaps or None,
         )
         status = "cancelled" if cancel.is_set() else "complete"
         job["status"] = status
@@ -77,26 +78,43 @@ def _run_job(job_id: str, terms: list, sites: list, use_ocr: bool,
 
 @app.route("/")
 def index():
-    return render_template("index.html", sites=_audit.SITES, ocr_available=_audit.OCR_AVAILABLE)
+    return render_template(
+        "index.html",
+        sites=_audit.SITES,
+        site_labels=_audit.SITE_LABELS,
+        marketing_sitemaps=_audit.MARKETING_SITEMAPS,
+        default_marketing_sitemaps=_audit.DEFAULT_MARKETING_SITEMAPS,
+        ocr_available=_audit.OCR_AVAILABLE,
+    )
 
 
 @app.route("/audit/start", methods=["POST"])
 def start_audit():
-    data        = request.get_json(force=True)
-    terms       = [t.strip() for t in data.get("terms", []) if t.strip()]
-    sites       = data.get("sites", ["support"])
-    use_ocr     = bool(data.get("use_ocr", False))
-    extra_seeds = [u.strip() for u in data.get("extra_seeds", []) if u.strip()]
+    data               = request.get_json(force=True)
+    terms              = [t.strip() for t in data.get("terms", []) if t.strip()]
+    sites              = data.get("sites", ["support"])
+    use_ocr            = bool(data.get("use_ocr", False))
+    extra_seeds        = [u.strip() for u in data.get("extra_seeds", []) if u.strip()]
+    marketing_sitemaps = [s.strip() for s in data.get("marketing_sitemaps", []) if s.strip()]
 
     if not terms:
         return jsonify({"error": "At least one search term is required."}), 400
     if not sites:
         return jsonify({"error": "At least one site must be selected."}), 400
+    if len(sites) > 1:
+        return jsonify({"error": "Scan one site at a time (Help Center or Website)."}), 400
 
     # Validate site keys
     for s in sites:
         if s not in _audit.SITES:
             return jsonify({"error": f"Unknown site: {s}"}), 400
+
+    if "marketing" in sites:
+        unknown = [s for s in marketing_sitemaps if s not in _audit.MARKETING_SITEMAPS]
+        if unknown:
+            return jsonify({"error": f"Unknown sitemap key(s): {', '.join(unknown)}"}), 400
+        if not marketing_sitemaps:
+            return jsonify({"error": "Select at least one sitemap to scan."}), 400
 
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
@@ -108,7 +126,7 @@ def start_audit():
     }
 
     t = threading.Thread(target=_run_job,
-                         args=(job_id, terms, sites, use_ocr, extra_seeds),
+                         args=(job_id, terms, sites, use_ocr, extra_seeds, marketing_sitemaps),
                          daemon=True)
     t.start()
 

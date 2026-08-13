@@ -100,16 +100,16 @@ st.divider()
 set_col1, set_col2 = st.columns(2)
 
 with set_col1:
-    st.subheader("Sites to Audit")
+    st.subheader("Site to Audit")
     site_choice = st.radio(
         "site",
         options=[
             "Help Center  (support.fieldnation.com)",
-            "Marketing Site  (fieldnation.com)",
-            "Both Sites",
+            "Website  (fieldnation.com)",
         ],
         label_visibility="collapsed",
     )
+    st.caption("Help Center and Website are scanned separately — pick one per run.")
 
 with set_col2:
     st.subheader("Options")
@@ -123,11 +123,39 @@ with set_col2:
         use_ocr = False
 
 site_map = {
-    "Help Center  (support.fieldnation.com)":  ["support"],
-    "Marketing Site  (fieldnation.com)":        ["marketing"],
-    "Both Sites":                               ["support", "marketing"],
+    "Help Center  (support.fieldnation.com)": ["support"],
+    "Website  (fieldnation.com)":              ["marketing"],
 }
 sites = site_map[site_choice]
+
+marketing_sitemaps = []
+if sites == ["marketing"]:
+    st.subheader("Website Sitemaps to Scan")
+    selected = []
+    for key, cfg in _audit.MARKETING_SITEMAPS.items():
+        checked = st.checkbox(
+            f"{cfg['label']} ({cfg['count']}) — {cfg['action']}",
+            value=cfg["default"],
+            key=f"sitemap_{key}",
+        )
+        if checked:
+            selected.append(key)
+    marketing_sitemaps = selected
+
+    if not marketing_sitemaps:
+        st.info("Select at least one sitemap to scan.")
+    else:
+        total_pages = sum(_audit.MARKETING_SITEMAPS[k]["count"] for k in marketing_sitemaps)
+        low_min  = round(total_pages * 2.5 / 60)
+        high_min = round(total_pages * 8 / 60)
+        estimate_text = (
+            f"~{total_pages} pages selected — estimated {low_min}-{high_min} min. "
+            "Keep this tab open until it finishes."
+        )
+        if total_pages > 150 or len(marketing_sitemaps) > 1:
+            st.warning(estimate_text)
+        else:
+            st.caption(estimate_text)
 
 st.divider()
 
@@ -149,13 +177,18 @@ extra_seeds = [u.strip() for u in extra_seeds_raw.splitlines()
 st.divider()
 
 # ── Run Audit ─────────────────────────────────────────────────────────────────
-run_disabled = not st.session_state.terms
+run_disabled = not st.session_state.terms or (sites == ["marketing"] and not marketing_sitemaps)
+run_help = None
+if not st.session_state.terms:
+    run_help = "Add at least one search term to enable."
+elif sites == ["marketing"] and not marketing_sitemaps:
+    run_help = "Select at least one sitemap to enable."
 st.button(
     "▶  Run Audit",
     type="primary",
     disabled=run_disabled,
     key="run_btn",
-    help="Add at least one search term to enable." if run_disabled else None,
+    help=run_help,
 )
 
 if st.session_state.get("run_btn"):
@@ -218,12 +251,13 @@ if st.session_state.get("run_btn"):
         elif etype == "flagged":
             r = event["result"]
             results.append({
-                "URL":           r["url"],
-                "Page Title":    r["title"],
-                "Site":          r["site"],
-                "Matched Terms": "; ".join(r["matched_terms"]),
-                "Found Via":     r["match_types"],
-                "Context":       (r["snippets"] or [""])[0],
+                "URL":              r["url"],
+                "Page Title":       r["title"],
+                "Site":             r.get("site_label", r["site"]),
+                "Suggested Action": r.get("suggested_action", ""),
+                "Matched Terms":    "; ".join(r["matched_terms"]),
+                "Found Via":        r["match_types"],
+                "Context":          (r["snippets"] or [""])[0],
             })
             _show_table()
             status_box.info(
@@ -233,7 +267,8 @@ if st.session_state.get("run_btn"):
 
     try:
         _audit.run_audit_bfs(sites, terms, use_ocr, on_event=on_event,
-                             extra_seeds=extra_seeds)
+                             extra_seeds=extra_seeds,
+                             marketing_sitemaps=marketing_sitemaps or None)
     except Exception as exc:
         st.error(f"Audit error: {exc}")
         st.stop()

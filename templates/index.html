@@ -195,11 +195,12 @@
       width: 100%; border-collapse: collapse; font-size: 13px;
       table-layout: fixed;
     }
-    col.col-title   { width: 22%; }
-    col.col-url     { width: 26%; }
-    col.col-terms   { width: 16%; }
-    col.col-type    { width: 10%; }
-    col.col-context { width: 26%; }
+    col.col-title   { width: 20%; }
+    col.col-url     { width: 23%; }
+    col.col-terms   { width: 14%; }
+    col.col-type    { width: 9%; }
+    col.col-action  { width: 11%; }
+    col.col-context { width: 23%; }
     thead th {
       text-align: left; padding: 8px 12px;
       font-weight: 600; font-size: 12px; color: var(--gray-600);
@@ -242,6 +243,18 @@
       font-size: 13px; display: none;
     }
 
+    /* ── Runtime estimate ── */
+    .hint-warning {
+      color: var(--red); font-weight: 600;
+      background: var(--red-light); border-radius: var(--radius);
+      padding: 6px 10px; display: inline-block; margin-top: 6px;
+    }
+    .action-badge {
+      background: var(--gray-100); color: var(--gray-600);
+      padding: 1px 7px; border-radius: 99px; font-size: 11px;
+      white-space: nowrap;
+    }
+
     /* ── Status dot animation ── */
     @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
     .status-dot {
@@ -279,18 +292,31 @@
       </div>
 
       <div class="field">
-        <label>Sites to Audit</label>
+        <label>Site to Audit</label>
         <div class="radio-group" id="site-group">
           <label class="radio-opt">
             <input type="radio" name="site" value="support" checked /> Help Center
           </label>
           <label class="radio-opt">
-            <input type="radio" name="site" value="marketing" /> Marketing Site
-          </label>
-          <label class="radio-opt">
-            <input type="radio" name="site" value="both" /> Both Sites
+            <input type="radio" name="site" value="marketing" /> Website
           </label>
         </div>
+        <p class="hint">Help Center and Website are scanned separately — pick one per run.</p>
+      </div>
+
+      <div class="field" id="sitemap-field" style="display:none">
+        <label>Website Sitemaps to Scan</label>
+        <div class="radio-group" id="sitemap-group">
+          {% for key, cfg in marketing_sitemaps.items() %}
+          <label class="check-opt">
+            <input type="checkbox" name="sitemap" value="{{ key }}" data-count="{{ cfg.count }}"
+                   {% if key in default_marketing_sitemaps %}checked{% endif %} />
+            {{ cfg.label }} ({{ cfg.count }})
+            <span style="color:var(--gray-400);font-weight:400">— {{ cfg.action }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <p class="hint" id="sitemap-estimate"></p>
       </div>
 
       <div class="field">
@@ -373,7 +399,7 @@
         <table>
           <colgroup>
             <col class="col-title"><col class="col-url">
-            <col class="col-terms"><col class="col-type"><col class="col-context">
+            <col class="col-terms"><col class="col-type"><col class="col-action"><col class="col-context">
           </colgroup>
           <thead>
             <tr>
@@ -381,6 +407,7 @@
               <th>URL</th>
               <th>Matched Terms</th>
               <th>Found Via</th>
+              <th>Suggested Action</th>
               <th>Context</th>
             </tr>
           </thead>
@@ -441,6 +468,40 @@
   let allResults    = [];
   let lastTerms     = [];
 
+  // ── Sitemap chunk selection (Website mode) ────────────────────────────────
+  const SECONDS_PER_PAGE_LOW  = 2.5;
+  const SECONDS_PER_PAGE_HIGH = 8;
+  const WARNING_PAGE_THRESHOLD = 150;
+
+  function updateSiteFieldVisibility() {
+    const siteVal = document.querySelector('input[name="site"]:checked').value;
+    document.getElementById("sitemap-field").style.display =
+      siteVal === "marketing" ? "block" : "none";
+    updateSitemapEstimate();
+  }
+
+  function updateSitemapEstimate() {
+    const boxes = Array.from(document.querySelectorAll('input[name="sitemap"]:checked'));
+    const totalPages = boxes.reduce((sum, b) => sum + (parseInt(b.dataset.count, 10) || 0), 0);
+    const el = document.getElementById("sitemap-estimate");
+    if (!boxes.length) {
+      el.textContent = "Select at least one sitemap to scan.";
+      el.className = "hint";
+      return;
+    }
+    const lowMin  = Math.round((totalPages * SECONDS_PER_PAGE_LOW) / 60);
+    const highMin = Math.round((totalPages * SECONDS_PER_PAGE_HIGH) / 60);
+    const text = `~${totalPages} pages selected — estimated ${lowMin}-${highMin} min. Keep this tab open until it finishes.`;
+    el.textContent = text;
+    el.className = (totalPages > WARNING_PAGE_THRESHOLD || boxes.length > 1) ? "hint-warning" : "hint";
+  }
+
+  document.querySelectorAll('input[name="site"]').forEach(el =>
+    el.addEventListener("change", updateSiteFieldVisibility));
+  document.querySelectorAll('input[name="sitemap"]').forEach(el =>
+    el.addEventListener("change", updateSitemapEstimate));
+  updateSiteFieldVisibility();
+
   // ── Audit ──────────────────────────────────────────────────────────────────
   async function startAudit() {
     // Flush any pending text in the input
@@ -452,13 +513,24 @@
       return;
     }
 
+    const siteVal = document.querySelector('input[name="site"]:checked').value;
+    const sites   = [siteVal];
+
+    let marketingSitemaps = [];
+    if (siteVal === "marketing") {
+      marketingSitemaps = Array.from(document.querySelectorAll('input[name="sitemap"]:checked'))
+        .map(b => b.value);
+      if (!marketingSitemaps.length) {
+        showError("Select at least one sitemap to scan.");
+        return;
+      }
+    }
+
     hideError();
     setFormDisabled(true);
     allResults = [];
     lastTerms  = [...terms];
 
-    const siteVal    = document.querySelector('input[name="site"]:checked').value;
-    const sites      = siteVal === "both" ? ["support", "marketing"] : [siteVal];
     const useOcr     = document.getElementById("ocr-check").checked;
     const extraSeeds = document.getElementById("seed-urls").value
       .split("\n").map(u => u.trim()).filter(u => u.startsWith("http"));
@@ -475,7 +547,8 @@
       const res  = await fetch("/audit/start", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({terms, sites, use_ocr: useOcr, extra_seeds: extraSeeds}),
+        body: JSON.stringify({terms, sites, use_ocr: useOcr, extra_seeds: extraSeeds,
+                               marketing_sitemaps: marketingSitemaps}),
       });
       const data = await res.json();
       if (data.error) { showError(data.error); setFormDisabled(false); return; }
@@ -590,11 +663,15 @@
     const chips   = r.matched_terms.map(t => `<span class="term-chip">${esc(t)}</span>`).join(" ");
     const tr      = document.createElement("tr");
 
+    const action = r.suggested_action
+      ? `<span class="action-badge">${esc(r.suggested_action)}</span>` : "—";
+
     tr.innerHTML = `
       <td>${esc(r.title)}</td>
       <td class="cell-url"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a></td>
       <td><div class="cell-terms">${chips}</div></td>
       <td><span class="type-badge">${esc(r.match_types)}</span></td>
+      <td>${action}</td>
       <td class="cell-context">${esc(snippet)}</td>`;
 
     tbody.appendChild(tr);
@@ -626,12 +703,13 @@
 
   // ── CSV Export ─────────────────────────────────────────────────────────────
   function exportCSV() {
-    const rows = [["URL","Page Title","Site","Matched Terms","Match Type","Context"]];
+    const rows = [["URL","Page Title","Site","Suggested Action","Matched Terms","Match Type","Context"]];
     for (const r of allResults) {
       rows.push([
         r.url,
         r.title,
-        r.site,
+        r.site_label || r.site,
+        r.suggested_action || "",
         r.matched_terms.join("; "),
         r.match_types,
         (r.snippets || []).join(" | "),
@@ -666,6 +744,7 @@
   function setFormDisabled(disabled) {
     document.getElementById("run-btn").disabled = disabled;
     document.querySelectorAll('input[name="site"]').forEach(el => el.disabled = disabled);
+    document.querySelectorAll('input[name="sitemap"]').forEach(el => el.disabled = disabled);
     document.getElementById("ocr-check").disabled = disabled;
     document.getElementById("term-input").disabled = disabled;
   }

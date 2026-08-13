@@ -80,8 +80,61 @@ except ImportError:
 
 SITES = {
     "support":   "https://support.fieldnation.com",
-    "marketing": "https://www.fieldnation.com",
+    "marketing": "https://fieldnation.com",
 }
+
+SITE_LABELS = {
+    "support":   "Help Center",
+    "marketing": "Website",
+}
+
+# fieldnation.com's sitemap index (https://fieldnation.com/sitemap_index.xml) breaks
+# content into 8 sub-sitemaps by WordPress post type / taxonomy. Rather than crawl
+# the whole marketing site in one run, each sub-sitemap is exposed as its own
+# selectable "chunk" so a scan's page count -- and therefore its runtime -- is known
+# upfront. "page" is the default: it's where legal/compliance/product-copy updates
+# actually happen. "post" (blog) is scanned but framed differently -- a match there
+# usually means "consider archiving this post," not "go edit it," since blog content
+# isn't maintained the way static pages are. Counts below were measured directly
+# against the live sitemaps and should be re-checked periodically.
+MARKETING_SITEMAPS: Dict[str, Dict[str, object]] = {
+    "page": {
+        "file": "page-sitemap.xml", "label": "Pages",
+        "action": "Update", "default": True, "count": 267,
+    },
+    "fldn_learn": {
+        "file": "fldn_learn-sitemap.xml", "label": "Learn Articles",
+        "action": "Update", "default": False, "count": 101,
+    },
+    "fldn_content_category": {
+        "file": "fldn_content_category-sitemap.xml", "label": "Content Categories",
+        "action": "Update", "default": False, "count": 14,
+    },
+    "fldn_work_type": {
+        "file": "fldn_work_type-sitemap.xml", "label": "Work Types",
+        "action": "Update", "default": False, "count": 12,
+    },
+    "fldn_content_type": {
+        "file": "fldn_content_type-sitemap.xml", "label": "Content Types",
+        "action": "Update", "default": False, "count": 8,
+    },
+    "post": {
+        "file": "post-sitemap.xml", "label": "Blog Posts",
+        "action": "Archive candidate", "default": False, "count": 472,
+    },
+    "fldn_author": {
+        "file": "fldn_author-sitemap.xml", "label": "Authors (FLDN)",
+        "action": "Review", "default": False, "count": 25,
+    },
+    "author": {
+        "file": "author-sitemap.xml", "label": "Authors",
+        "action": "Review", "default": False, "count": 10,
+    },
+}
+
+DEFAULT_MARKETING_SITEMAPS: List[str] = [
+    key for key, cfg in MARKETING_SITEMAPS.items() if cfg["default"]
+]
 
 # Broad search terms that collectively surface every article category on
 # support.fieldnation.com.  Each term produces a search-results page that
@@ -136,7 +189,7 @@ HEADERS = {
 PAGE_LOAD_WAIT  = "networkidle"  # wait for JS to settle
 PAGE_TIMEOUT_MS = 25_000         # 25s per page
 CRAWL_DELAY_S   = 0.5            # polite delay between pages
-MAX_PAGES       = 800            # safety cap (BFS may find more than sitemap)
+MAX_PAGES       = 1000           # safety cap (BFS may find more than sitemap)
 
 # URL path segments that indicate non-content pages -- skip during BFS.
 # Note: "global-search" must NOT be skipped -- those pages surface articles.
@@ -166,6 +219,79 @@ def _fetch_xml(url: str, session: requests.Session) -> Optional[ET.Element]:
     except Exception as exc:
         log.debug(f"XML fetch failed {url}: {exc}")
         return None
+
+
+_canonical_base_cache: Dict[str, str] = {}
+
+
+def _resolve_canonical_base(url: str, session: requests.Session) -> str:
+    """
+    Follow redirects to find the real scheme+netloc a site resolves to.
+
+    fieldnation.com has redirected between www/non-www before (WP Engine +
+    Cloudflare config), which silently breaks every domain-equality check
+    downstream if the hardcoded SITES value ever drifts from reality again.
+    Resolving it once per run, rather than trusting the constant, means a
+    future redirect change degrades gracefully instead of breaking crawling.
+    """
+    if url in _canonical_base_cache:
+        return _canonical_base_cache[url]
+
+    resolved = url
+    try:
+        r = session.head(url, timeout=10, allow_redirects=True)
+        resolved = r.url
+    except Exception:
+        try:
+            r = session.get(url, timeout=10, allow_redirects=True, stream=True)
+            resolved = r.url
+            r.close()
+        except Exception as exc:
+            log.debug(f"Canonical base resolution failed for {url}: {exc}")
+
+    p = urlparse(resolved)
+    base = f"{p.scheme}://{p.netloc}"
+    _canonical_base_cache[url] = base
+    return base
+
+
+def get_marketing_sitemap_urls(
+    base_url: str,
+    session: requests.Session,
+    chunk_keys: List[str],
+) -> Tuple[List[str], Dict[str, str]]:
+    """
+    Fetch URLs directly from specific fieldnation.com sub-sitemaps (e.g. just
+    "page-sitemap.xml"), instead of walking the full sitemap index. Each of
+    these files is a flat <url><loc> list (not itself a sitemap index), so no
+    recursion is needed.
+
+    Returns (urls, url_to_chunk) where url_to_chunk maps each URL back to the
+    MARKETING_SITEMAPS key it came from, so results can carry a suggested
+    action (e.g. "Update" vs "Archive candidate") based on source.
+    """
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    urls: List[str] = []
+    url_to_chunk: Dict[str, str] = {}
+
+    for key in chunk_keys:
+        cfg = MARKETING_SITEMAPS.get(key)
+        if not cfg:
+            log.warning(f"Unknown marketing sitemap key: {key!r} -- skipping")
+            continue
+        sm_url = f"{base_url}/{cfg['file']}"
+        root = _fetch_xml(sm_url, session)
+        if root is None:
+            log.warning(f"Could not fetch {sm_url} -- skipping this chunk")
+            continue
+        chunk_urls = [u.text.strip() for u in root.findall(".//sm:url/sm:loc", ns)]
+        for raw in chunk_urls:
+            norm = _normalize_url(raw)
+            if norm not in url_to_chunk:
+                url_to_chunk[norm] = key
+                urls.append(raw)
+
+    return list(dict.fromkeys(urls)), url_to_chunk
 
 
 def get_sitemap_urls(base_url: str, session: requests.Session) -> List[str]:
@@ -244,7 +370,7 @@ def crawl_site_urls(base_url: str, browser: Browser, max_pages: int = MAX_PAGES)
 
 
 def discover_urls(site_key: str, session: requests.Session, browser: Browser) -> List[str]:
-    base = SITES[site_key]
+    base = _resolve_canonical_base(SITES[site_key], session)
     log.info(f"Discovering URLs for {base} ...")
 
     urls = get_sitemap_urls(base, session)
@@ -313,12 +439,19 @@ def get_page_content(
     url: str,
     page: Page,
     base_netloc: Optional[str] = None,
+    content_selector_candidates: Optional[List[str]] = None,
 ) -> Tuple[str, str, List[str], List[str]]:
     """
     Render page with Playwright and return
     (title, visible_text, img_urls, same-domain links).
     Links are normalised (query strings stripped) for BFS deduplication.
     Pass base_netloc to enable link collection; omit to skip it.
+
+    content_selector_candidates: optional CSS selectors to prefer for text
+    extraction (e.g. ["main"]), tried in order. Falls back to the full <body>
+    if none match or the matched element has no text -- used on the marketing
+    site to avoid matching against repeated nav/footer boilerplate on every
+    single page.
     """
     try:
         page.goto(url, wait_until=PAGE_LOAD_WAIT, timeout=PAGE_TIMEOUT_MS)
@@ -332,7 +465,16 @@ def get_page_content(
         if not title:
             title = url
 
-        text = page.inner_text("body") or ""
+        text = ""
+        for sel in (content_selector_candidates or []):
+            el = page.query_selector(sel)
+            if el:
+                candidate = (el.inner_text() or "").strip()
+                if candidate:
+                    text = candidate
+                    break
+        if not text:
+            text = page.inner_text("body") or ""
 
         # Collect image srcs
         img_urls: List[str] = []
@@ -510,16 +652,27 @@ def run_audit_bfs(
     on_event=None,
     cancel_event=None,
     extra_seeds: Optional[List[str]] = None,
+    marketing_sitemaps: Optional[List[str]] = None,
 ) -> List[Dict]:
     """
-    BFS audit -- discovers URLs as a side-effect of scanning.
+    Audit runner. Behavior differs by site because their content is organized
+    differently:
 
-    Starts from the sitemap (or homepage) and follows every link found on each
-    page, so articles not listed in the sitemap are still visited.
+    - Help center (support.fieldnation.com): sitemap + 30 search-seed pages +
+      full BFS link-following, since Salesforce Knowledge articles can be
+      orphaned (absent from any sitemap or nav element).
+    - Marketing site (fieldnation.com): sitemap-seed ONLY, no BFS expansion.
+      Its WordPress sitemaps already comprehensively enumerate the site, so
+      following links would only balloon runtime without finding anything
+      new. Callers choose which sub-sitemap "chunks" to scan via
+      marketing_sitemaps (see MARKETING_SITEMAPS); this keeps each run's page
+      count -- and therefore its runtime -- known upfront.
 
-    extra_seeds: additional URLs to always include (e.g. articles not linked
-    from any navigation page). These are added to the queue before scanning
-    starts, and links discovered FROM them expand the queue further.
+    extra_seeds: additional URLs to always include (e.g. help-center articles
+    not linked from any navigation page). For the help center these also
+    expand via BFS; for the marketing site they're scanned directly but do
+    not trigger further link-following, consistent with the no-BFS approach
+    above.
 
     on_event(dict) is called for progress; events emitted:
       {"type": "discovering", "site": url}
@@ -528,7 +681,8 @@ def run_audit_bfs(
       {"type": "flagged",     "result": {...}}
 
     Returns list of flagged-page dicts:
-      url, title, site, matched_terms, snippets, match_types
+      url, title, site, site_label, matched_terms, snippets, match_types,
+      and (marketing only) sitemap_label, suggested_action.
     """
     def emit(event: dict) -> None:
         if on_event:
@@ -544,33 +698,42 @@ def run_audit_bfs(
 
         try:
             for site_key in sites:
-                base         = SITES[site_key]
-                parsed_base  = urlparse(base)
-                base_netloc  = parsed_base.netloc
+                is_marketing = site_key == "marketing"
+                base        = _resolve_canonical_base(SITES[site_key], session)
+                base_netloc = urlparse(base).netloc
 
                 emit({"type": "discovering", "site": base})
-                log.info(f"Discovering URLs for {base} (sitemap + BFS link-follow)...")
 
-                # Seed queue from sitemap (fast HTTP, no browser needed)
-                sitemap_urls = get_sitemap_urls(base, session)
-                seed = [_normalize_url(u) for u in sitemap_urls] if sitemap_urls else [base]
-                log.info(f"  Sitemap seed: {len(seed)} URLs")
+                url_to_chunk: Dict[str, str] = {}
+
+                if is_marketing:
+                    chunk_keys = marketing_sitemaps or DEFAULT_MARKETING_SITEMAPS
+                    log.info(f"Discovering URLs for {base} (sitemap chunks only, no BFS)...")
+                    chunk_urls, url_to_chunk = get_marketing_sitemap_urls(base, session, chunk_keys)
+                    seed = [_normalize_url(u) for u in chunk_urls] if chunk_urls else [base]
+                    log.info(f"  Sitemap chunks {chunk_keys}: {len(seed)} URLs")
+                else:
+                    log.info(f"Discovering URLs for {base} (sitemap + BFS link-follow)...")
+                    sitemap_urls = get_sitemap_urls(base, session)
+                    seed = [_normalize_url(u) for u in sitemap_urls] if sitemap_urls else [base]
+                    log.info(f"  Sitemap seed: {len(seed)} URLs")
 
                 queue:   List[str] = list(seed)
                 queued:  Set[str]  = set(queue)
                 visited: Set[str]  = set()
                 scanned = 0
 
-                # Add search-result pages as BFS seeds.
+                # Add search-result pages as BFS seeds (help center only).
                 # These surface knowledge articles not linked from any nav element
                 # (e.g. orphaned Salesforce articles absent from the sitemap).
-                search_seeds = _get_search_seed_urls(base)
-                for s in search_seeds:
-                    if s not in queued:
-                        queue.append(s)
-                        queued.add(s)
-                if search_seeds:
-                    log.info(f"  Search seeds: +{len(search_seeds)} search-result pages added to queue")
+                if not is_marketing:
+                    search_seeds = _get_search_seed_urls(base)
+                    for s in search_seeds:
+                        if s not in queued:
+                            queue.append(s)
+                            queued.add(s)
+                    if search_seeds:
+                        log.info(f"  Search seeds: +{len(search_seeds)} search-result pages added to queue")
 
                 # Inject any user-specified URLs that might not be in the sitemap
                 # or reachable via navigation links (e.g. orphaned articles).
@@ -605,14 +768,18 @@ def run_audit_bfs(
                           "total": total_est, "url": url})
 
                     if scanned % 25 == 0:
-                        log.info(f"  [{scanned}/~{total_est}] BFS scanning... "
+                        log.info(f"  [{scanned}/~{total_est}] scanning... "
                                  f"({len(queue)} in queue)")
 
                     title, text, img_urls, new_links = get_page_content(
-                        url, page, base_netloc=base_netloc
+                        url, page,
+                        base_netloc=(None if is_marketing else base_netloc),
+                        content_selector_candidates=(["main"] if is_marketing else None),
                     )
 
-                    # Expand queue with freshly discovered links
+                    # Expand queue with freshly discovered links (help center only --
+                    # marketing never passes base_netloc above, so new_links is always
+                    # empty there; see run_audit_bfs docstring).
                     added = 0
                     for link in new_links:
                         if link not in queued:
@@ -647,10 +814,18 @@ def run_audit_bfs(
                         "url":           url,
                         "title":         title,
                         "site":          site_key,
+                        "site_label":    SITE_LABELS.get(site_key, site_key),
                         "matched_terms": all_matched,
                         "snippets":      text_snippets + img_notes,
                         "match_types":   ", ".join(match_types),
                     }
+
+                    if is_marketing:
+                        chunk_key = url_to_chunk.get(_normalize_url(url))
+                        chunk_cfg = MARKETING_SITEMAPS.get(chunk_key) if chunk_key else None
+                        result["sitemap_label"]   = chunk_cfg["label"] if chunk_cfg else "Additional URL"
+                        result["suggested_action"] = chunk_cfg["action"] if chunk_cfg else "Review"
+
                     all_results.append(result)
                     emit({"type": "flagged", "result": result})
                     log.info(f"  FLAGGED: {title[:60]}  →  {all_matched}")
@@ -669,11 +844,12 @@ def run_audit(
     search_terms: List[str],
     use_ocr: bool = True,
     extra_seeds: Optional[List[str]] = None,
+    marketing_sitemaps: Optional[List[str]] = None,
 ) -> List[Dict]:
     """CLI wrapper around run_audit_bfs (kept for backward compatibility)."""
     def on_event(event):
         if event.get("type") == "started":
-            log.info(f"Starting BFS scan (seed: {event['total']} URLs from sitemap) ...")
+            log.info(f"Starting scan (seed: {event['total']} URLs) ...")
         elif event.get("type") == "scanning":
             cur   = event.get("current", 0)
             total = event.get("total", 0)
@@ -683,7 +859,7 @@ def run_audit(
             pass  # already logged inside run_audit_bfs
 
     return run_audit_bfs(sites, search_terms, use_ocr, on_event=on_event,
-                         extra_seeds=extra_seeds)
+                         extra_seeds=extra_seeds, marketing_sitemaps=marketing_sitemaps)
 
 
 # ── Output: CSV ───────────────────────────────────────────────────────────────
@@ -691,12 +867,13 @@ def run_audit(
 def save_csv(flagged: List[Dict], path: str) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["URL", "Page Title", "Site", "Matched Terms", "Match Type", "Snippets"])
+        w.writerow(["URL", "Page Title", "Site", "Suggested Action", "Matched Terms", "Match Type", "Snippets"])
         for r in flagged:
             w.writerow([
                 r["url"],
                 r["title"],
-                r["site"],
+                r.get("site_label", r["site"]),
+                r.get("suggested_action", ""),
                 "; ".join(r["matched_terms"]),
                 r["match_types"],
                 " | ".join(r["snippets"]),
@@ -750,7 +927,7 @@ def _build_doc_requests(
     """Produce Google Docs API batchUpdate requests for the full document."""
 
     now        = datetime.now().strftime("%B %d, %Y at %I:%M %p")
-    site_names = [SITES[s] for s in sites]
+    site_names = [SITE_LABELS.get(s, s) for s in sites]
 
     # ── Build plain text body ──
     lines: List[Tuple[str, str]] = []   # (style, text)
@@ -772,7 +949,13 @@ def _build_doc_requests(
         for r in flagged:
             lines.append(("heading3", r["title"]))
             lines.append(("url",      r["url"]))
-            lines.append(("normal",   f"Matched: {', '.join(r['matched_terms'])}   |   Via: {r['match_types']}"))
+            site_bit = r.get("site_label", r["site"])
+            action   = r.get("suggested_action")
+            summary  = f"Site: {site_bit}"
+            if action:
+                summary += f"   |   Suggested action: {action}"
+            summary += f"   |   Matched: {', '.join(r['matched_terms'])}   |   Via: {r['match_types']}"
+            lines.append(("normal", summary))
             for snippet in r["snippets"]:
                 lines.append(("snippet", snippet))
             lines.append(("normal", ""))
@@ -882,9 +1065,21 @@ def main() -> None:
     )
     parser.add_argument(
         "--site",
-        choices=["support", "marketing", "both"],
+        choices=["support", "marketing"],
         default="support",
-        help="Which site to audit (default: support)",
+        help="Which site to audit (default: support). Help Center and Website "
+             "are always scanned separately -- there is no combined run.",
+    )
+    parser.add_argument(
+        "--sitemaps",
+        metavar="KEYS",
+        default=None,
+        help=(
+            "Comma-separated marketing sitemap chunks to scan, e.g. "
+            f"'page,fldn_learn'. Only applies with --site marketing. "
+            f"Choices: {', '.join(MARKETING_SITEMAPS)}. "
+            f"Default: {','.join(DEFAULT_MARKETING_SITEMAPS)}."
+        ),
     )
     parser.add_argument(
         "--no-ocr",
@@ -904,8 +1099,20 @@ def main() -> None:
     )
 
     args  = parser.parse_args()
-    sites = ["support", "marketing"] if args.site == "both" else [args.site]
+    sites = [args.site]
     use_ocr = not args.no_ocr
+
+    marketing_sitemaps = None
+    if args.sitemaps:
+        marketing_sitemaps = [s.strip() for s in args.sitemaps.split(",") if s.strip()]
+        unknown = [s for s in marketing_sitemaps if s not in MARKETING_SITEMAPS]
+        if unknown:
+            parser.error(
+                f"Unknown --sitemaps key(s): {', '.join(unknown)}. "
+                f"Choices: {', '.join(MARKETING_SITEMAPS)}"
+            )
+    elif args.site == "marketing":
+        marketing_sitemaps = DEFAULT_MARKETING_SITEMAPS
 
     if use_ocr and not OCR_AVAILABLE:
         log.warning(
@@ -915,7 +1122,7 @@ def main() -> None:
         use_ocr = False
 
     # ── Run ──
-    flagged = run_audit(sites, args.terms, use_ocr=use_ocr)
+    flagged = run_audit(sites, args.terms, use_ocr=use_ocr, marketing_sitemaps=marketing_sitemaps)
 
     log.info(f"\nAudit complete — {len(flagged)} page(s) flagged.")
 
@@ -939,12 +1146,16 @@ def main() -> None:
     print(f"\n{'='*65}")
     print("FIELD NATION CONTENT AUDIT — RESULTS")
     print(f"Terms:    {', '.join(repr(t) for t in args.terms)}")
-    print(f"Sites:    {', '.join(SITES[s] for s in sites)}")
+    print(f"Sites:    {', '.join(SITE_LABELS.get(s, s) for s in sites)}")
+    if marketing_sitemaps:
+        print(f"Sitemaps: {', '.join(marketing_sitemaps)}")
     print(f"Flagged:  {len(flagged)} page(s)")
     print(f"{'='*65}")
     for r in flagged:
         print(f"\n  {r['url']}")
         print(f"  Title:   {r['title'][:80]}")
+        if r.get("suggested_action"):
+            print(f"  Action:  {r['suggested_action']}")
         print(f"  Matched: {', '.join(r['matched_terms'])}  [{r['match_types']}]")
         if r["snippets"]:
             print(f"  Context: {r['snippets'][0][:130]}")
